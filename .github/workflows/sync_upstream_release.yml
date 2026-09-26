@@ -1,0 +1,121 @@
+name: Sync Upstream Release
+
+on:
+  workflow_dispatch:
+
+  schedule:
+    - cron: "0 */6 * * *"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: upstream-release-check
+  cancel-in-progress: false
+
+env:
+  UPSTREAM_REPO: "YouROK/TorrServer"
+  PATCH_FILE: "server/web/waf/referer.go"
+  BLOCKED_DOMAIN: "bylampa.online"
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+          token: ${{ secrets.PAT_TOKEN }}
+
+      - name: Check latest upstream release
+        id: check
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.PAT_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          LATEST_TAG=$(
+            curl -fsSL \
+              -H "Authorization: Bearer ${GH_TOKEN}" \
+              "https://api.github.com/repos/${UPSTREAM_REPO}/releases/latest" |
+            jq -r '.tag_name'
+          )
+
+          if [ -z "$LATEST_TAG" ] || [ "$LATEST_TAG" == "null" ]; then
+            echo "Could not fetch latest upstream release, aborting."
+            echo "new=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          if git ls-remote --tags origin | awk '{print $2}' | grep -qFx "refs/tags/${LATEST_TAG}"; then
+            echo "Already have ${LATEST_TAG}, nothing to do."
+            echo "new=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "New upstream release found: ${LATEST_TAG}"
+            echo "new=true" >> "$GITHUB_OUTPUT"
+            echo "upstream_tag=${LATEST_TAG}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Fetch upstream, reapply patch, commit and tag
+        if: steps.check.outputs.new == 'true'
+        shell: bash
+        env:
+          PAT_TOKEN: ${{ secrets.PAT_TOKEN }}
+          UPSTREAM_TAG: ${{ steps.check.outputs.upstream_tag }}
+        run: |
+          set -euo pipefail
+
+          git config user.name "github-actions[bot]"
+          git config user.email "actions@github.com"
+
+          git remote set-url origin \
+            "https://x-access-token:${PAT_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git remote add upstream "https://github.com/${UPSTREAM_REPO}.git" 2>/dev/null || true
+
+          # Pull in clean upstream code for this tag
+          git fetch upstream "$UPSTREAM_TAG"
+          git checkout FETCH_HEAD -- .
+          git add -A
+
+          # Reapply the patch: strip our domain from the WAF blocklist
+          if [ -f "$PATCH_FILE" ]; then
+            sed -i "/${BLOCKED_DOMAIN}/d" "$PATCH_FILE"
+            echo "Patched: removed ${BLOCKED_DOMAIN} from ${PATCH_FILE}"
+          else
+            echo "::warning::${PATCH_FILE} not found in ${UPSTREAM_TAG} — patch not applied"
+          fi
+
+          git add -A
+          git commit -m "Sync ${UPSTREAM_TAG} (upstream + patch)" || echo "Nothing to commit"
+
+          # Tag mirrors the upstream tag name exactly
+          git tag -d "$UPSTREAM_TAG" 2>/dev/null || true
+          git push origin ":refs/tags/${UPSTREAM_TAG}" 2>/dev/null || true
+          git tag "$UPSTREAM_TAG"
+          git push origin "$UPSTREAM_TAG"
+          git push origin HEAD:master
+
+      - name: Create GitHub Release
+        if: steps.check.outputs.new == 'true'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.PAT_TOKEN }}
+          UPSTREAM_TAG: ${{ steps.check.outputs.upstream_tag }}
+        run: |
+          set -euo pipefail
+
+          {
+            echo "Fork of ${UPSTREAM_REPO}, based on ${UPSTREAM_TAG}."
+            echo
+            echo "Removed ${BLOCKED_DOMAIN} from the hardcoded WAF referer blocklist — the upstream WAF blocks it unconditionally with no way to disable via settings."
+          } > release_notes.md
+
+          gh release create "$UPSTREAM_TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "${UPSTREAM_TAG} — Bylampa unblocked" \
+            --notes-file release_notes.md \
+            --latest
