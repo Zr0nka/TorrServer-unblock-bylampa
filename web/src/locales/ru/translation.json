@@ -1,4 +1,5 @@
 {
+  "Torrents": "Торренты",
   "About": "О сервере",
   "Actions": "Действия",
   "Add": "Добавить",
@@ -196,6 +197,11 @@
   "PIP": "Картинка в картинке",
   "Play": "Играть",
   "Playlist": "Плейлист",
+  "AllFiles": "Все файлы",
+  "ExpandAll": "Развернуть все",
+  "CollapseAll": "Свернуть все",
+  "CopyName": "Копировать имя",
+  "CopyPath": "Копировать путь",
   "Preload": "Предзагр.",
   "ProjectSource": "GitHub проекта",
   "PWAGuide": {

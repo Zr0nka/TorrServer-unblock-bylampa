@@ -1,4 +1,5 @@
 {
+  "Torrents": "Torrente",
   "About": "Despre",
   "Actions": "Acțiuni",
   "Add": "Adăugați",
@@ -202,6 +203,11 @@
   "PIP": "Imagine-în-Imagine",
   "Play": "Redare",
   "Playlist": "Playlist",
+  "AllFiles": "Toate fișierele",
+  "ExpandAll": "Extinde tot",
+  "CollapseAll": "Restrânge tot",
+  "CopyName": "Copiază numele",
+  "CopyPath": "Copiază calea",
   "Preload": "Preîncărcare",
   "ProjectSource": "GitHub",
   "PWAGuide": {
