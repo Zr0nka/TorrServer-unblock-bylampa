@@ -116,19 +116,22 @@ func (t *Torrent) Stream(fileID int, req *http.Request, resp http.ResponseWriter
 		}
 	}
 
-	// Mark as viewed without resetting existing TimeCode
-	var timecode float64
+	// Mark as viewed. An existing entry is left alone: rewriting it with its own
+	// TimeCode changes nothing, but costs a DB write (fsync) on every range request,
+	// i.e. on every seek.
+	viewed := false
 	for _, v := range sets.ListViewed(t.Hash().HexString()) {
 		if v.FileIndex == fileID {
-			timecode = v.TimeCode
+			viewed = true
 			break
 		}
 	}
-	sets.SetViewed(&sets.Viewed{
-		Hash:      t.Hash().HexString(),
-		FileIndex: fileID,
-		TimeCode:  timecode,
-	})
+	if !viewed {
+		sets.SetViewed(&sets.Viewed{
+			Hash:      t.Hash().HexString(),
+			FileIndex: fileID,
+		})
+	}
 
 	// Set response headers
 	resp.Header().Set("Connection", "close")
@@ -139,7 +142,7 @@ func (t *Torrent) Stream(fileID int, req *http.Request, resp http.ResponseWriter
 		resp.Header().Set("X-Stream-Timeout", fmt.Sprintf("%d", streamTimeout))
 	}
 	// Add ETag
-	etag := hex.EncodeToString([]byte(fmt.Sprintf("%s/%s", t.Hash().HexString(), file.Path())))
+	etag := hex.EncodeToString(fmt.Appendf(nil, "%s/%s", t.Hash().HexString(), file.Path()))
 	resp.Header().Set("ETag", httptoo.EncodeQuotedString(etag))
 	// DLNA headers
 	resp.Header().Set("transferMode.dlna.org", "Streaming")
